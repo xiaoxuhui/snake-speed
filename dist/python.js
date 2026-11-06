@@ -16,13 +16,12 @@ def make_route(n):
 
 print("R")  # 回到左上角，初始一格
 print("T")  # 开始 / 继续
-await wait()
 
 for command in cycle(make_route(get_state()["size"])):
     if get_state()["status"] == "won":
         break
     print(command)
-    await wait()  # 等这一格走完，再发下一条
+    # 每条方向输出都会自动移动一格，再等待 0.3 秒。
 `,
   square:`# 用函数与循环自动走一个方形。
 def side(direction, length):
@@ -33,7 +32,6 @@ print("R")
 print("T")
 for direction in ["D", "S", "A", "W"]:
     side(direction, 8)
-    await wait()
 print("方形完成！")
 `,
   basics:`# 真正的 Python：内置函数、类、标准库、文件与异常。
@@ -53,7 +51,6 @@ print("T")
 print("计算结果:", sum(range(10)), math.sqrt(81))
 print("计数:", dict(Counter("DDSSAAWW")))
 Route("D", 5).run()
-await wait()
 with open("route.json", "w") as f:
     json.dump(get_state(), f)
 with open("route.json") as f:
@@ -64,7 +61,7 @@ except ZeroDivisionError:
     print("异常处理也可以正常使用。")
 `
 };
-const pythonRunner={worker:null,ready:null,readyResolve:null,readyReject:null,runId:0,busy:false,loading:false,version:'',chain:Promise.resolve(),logs:[],renderPending:false};
+const pythonRunner={worker:null,ready:null,readyResolve:null,readyReject:null,runId:0,busy:false,loading:false,version:'',chain:Promise.resolve(),logs:[],renderPending:false,lastNotice:null};
 const editor=$('python-code');
 try{editor.value=localStorage.getItem('snake-python-code-v3')??PYTHON_EXAMPLES.auto;}catch{editor.value=PYTHON_EXAMPLES.auto;}
 function saveCode(){try{localStorage.setItem('snake-python-code-v3',editor.value);}catch{}}
@@ -94,7 +91,7 @@ function ensurePython(){
   pythonRunner.ready=new Promise((resolve,reject)=>{pythonRunner.readyResolve=resolve;pythonRunner.readyReject=reject;});
   pythonRunner.ready.catch(()=>{});
   let worker;
-  try{worker=new Worker(new URL('python-worker.js?v=python-v3',document.baseURI),{type:'module'});}
+  try{worker=new Worker(new URL('python-worker.js?v=python-v4',document.baseURI),{type:'module'});}
   catch(error){const promise=pythonRunner.ready;terminateRuntime();runtimeBadge('加载失败，可重试','error');return Promise.reject(error);}
   pythonRunner.worker=worker;
   worker.onmessage=event=>{
@@ -115,16 +112,20 @@ function ensurePython(){
       const respond=async()=>{
         if(pythonRunner.worker!==worker||pythonRunner.runId!==m.runId||!pythonRunner.busy)return;
         try{const snapshot=await window.snakeGame.command(m.command);
+          if(snapshot.notice&&snapshot.notice!==pythonRunner.lastNotice){
+            programLog(snapshot.notice,'system');runnerStatus(snapshot.notice);
+          }
+          pythonRunner.lastNotice=snapshot.notice||null;
           if(pythonRunner.worker===worker&&pythonRunner.busy)worker.postMessage({type:'response',runId:m.runId,id:m.id,state:snapshot});
         }catch(error){if(pythonRunner.worker===worker&&pythonRunner.busy)worker.postMessage({type:'response',runId:m.runId,id:m.id,error:error.message});}
       };
       pythonRunner.chain=pythonRunner.chain.then(respond,respond);return;
     }
-    if(m.type==='running'){runnerStatus('Python 正在自动控制小蛇，无需按键。可随时调速、暂停或停止程序。');return;}
+    if(m.type==='running'){runnerStatus('边输出边移动：每条 WASD 立即走一格，自动等待 0.3 秒后执行后面的代码。');return;}
     if(m.type==='done'||m.type==='error'){
-      pythonRunner.busy=false;window.snakeGame.end(m.type==='error');updateRunnerButtons();
+      pythonRunner.busy=false;window.snakeGame.end(true);updateRunnerButtons();
       if(m.type==='error'){programLog(m.message,'error');runnerStatus('程序遇到错误，详情见下方输出。修改后可以重新运行。');}
-      else{programLog('程序执行完成。','system');runnerStatus('Python 执行完成；小蛇会沿当前方向继续，可点击暂停。');}
+      else{programLog('程序执行完成。','system');runnerStatus('Python 执行完成。小蛇停在最后的位置，没有额外移动。');}
     }
   };
   worker.onerror=event=>{event.preventDefault();if(pythonRunner.worker===worker)failRuntime(event.message||'Python 运行环境发生错误。');};
@@ -137,7 +138,7 @@ function failRuntime(message){
 async function runPythonProgram(){
   if(pythonRunner.busy)return;
   const code=editor.value;if(!code.trim()){runnerStatus('先写一点 Python，或从菜单载入示例。');editor.focus();return;}
-  saveCode();pythonRunner.busy=true;const id=++pythonRunner.runId;pythonRunner.chain=Promise.resolve();
+  saveCode();pythonRunner.busy=true;pythonRunner.lastNotice=null;const id=++pythonRunner.runId;pythonRunner.chain=Promise.resolve();
   pythonRunner.logs=[];programLog('准备运行 Python…','system');runnerStatus('正在准备 Python 解释器…');updateRunnerButtons();
   try{
     await ensurePython();

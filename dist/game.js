@@ -7,6 +7,7 @@ const DIRECTIONS = {up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}
 let snake, direction, turns, food, score, state, timer, speed = 7, best = 0;
 let tool = 'play', guides = [], guideHistory = [], draft = null, pointerStart = null;
 let pythonControl = null;
+const PYTHON_COMMAND_DELAY = 300;
 try { const stored = Number(localStorage.getItem('snake-speed-best')); if (Number.isFinite(stored) && stored >= 0) best = Math.floor(stored); } catch {}
 $('best').textContent = best;
 function spawnFood() {
@@ -26,7 +27,11 @@ function reset(start = false) {
   updateUI(); draw();
   if (start) togglePlay();
 }
-function schedule() { clearTimeout(timer); timer=null; if (state === 'running') timer = setTimeout(tick,1000/speed); }
+function schedule() {
+  clearTimeout(timer);timer=null;
+  if(pythonControl){schedulePythonStep();return;}
+  if(state==='running')timer=setTimeout(tick,1000/speed);
+}
 function togglePlay() {
   if (tool !== 'play') setTool('play');
   if (state === 'over' || state === 'won') { window.stopPythonProgram?.(); reset(true); return; }
@@ -36,12 +41,10 @@ function togglePlay() {
 }
 function finish(won = false) {
   state = won ? 'won' : 'over'; clearTimeout(timer);timer=null;updateUI();
-  settlePythonStep(won ? null : new Error('游戏结束：小蛇撞到了边界或自身。可用 print("R") 重置。'));
 }
 function tick() {
   timer=null;
   if (state !== 'running') return;
-  if (pythonControl?.pending) { direction=pythonControl.pending.direction;turns=[]; }
   if (turns.length) direction = turns.shift();
   const head = {x:snake[0].x+direction.x,y:snake[0].y+direction.y};
   const eating = food && head.x === food.x && head.y === food.y;
@@ -55,7 +58,7 @@ function tick() {
     food = spawnFood();
     if (!food) { draw(); finish(true); return; }
   } else snake.pop();
-  draw(); settlePythonStep(); schedule();
+  draw(); if(!pythonControl)schedule();
 }
 function turn(name) {
   if (pythonControl) return;
@@ -135,6 +138,7 @@ function setTool(next) {
   pointerStart = null; draft = null;
   if (next !== 'play' && state === 'running') { state = 'paused'; clearTimeout(timer); }
   if (next !== 'play' && pythonControl) pythonControl.manualPaused=true;
+  if (pythonControl) schedulePythonStep();
   tool = next;
   document.querySelector('.board-wrap').dataset.tool = tool;
   document.querySelectorAll('button[data-tool]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.tool===tool)));
@@ -236,7 +240,38 @@ function gameSnapshot() {
 function settlePythonStep(error=null) {
   if (!pythonControl?.pending) return;
   const pending=pythonControl.pending;pythonControl.pending=null;
+  clearTimeout(pending.timeout);
   if(error) pending.reject(error);else pending.resolve(gameSnapshot());
+}
+function schedulePythonStep() {
+  const control=pythonControl,pending=control?.pending;
+  if(!pending)return;
+  if(control.manualPaused){
+    if(pending.timeout!==null){
+      clearTimeout(pending.timeout);pending.timeout=null;
+      pending.remaining=Math.max(0,pending.remaining-(performance.now()-pending.started));
+    }
+    return;
+  }
+  if(pending.timeout!==null)return;
+  if(!pending.executed){
+    pending.executed=true;
+    if(state==='over'||state==='won'){
+      pending.notice=state==='won'?'棋盘已填满，Python 程序继续执行。输出 R 可重置。':'小蛇已撞墙或碰到自身，游戏结束；Python 程序继续执行。输出 R 可重置。';
+    }else if(snake.length>1&&pending.direction.x===-direction.x&&pending.direction.y===-direction.y){
+      pending.notice='小蛇不能直接反向，本条移动已忽略；Python 程序继续执行。';
+    }else{
+      direction=pending.direction;turns=[];state='running';updateUI();tick();
+      if(state==='over')pending.notice='小蛇已撞墙或碰到自身，游戏结束；Python 程序继续执行。输出 R 可重置。';
+      if(state==='won')pending.notice='棋盘已填满，Python 程序继续执行。输出 R 可重置。';
+    }
+  }
+  pending.started=performance.now();
+  pending.timeout=setTimeout(()=>{
+    if(pythonControl!==control||control.pending!==pending)return;
+    control.pending=null;pending.timeout=null;
+    pending.resolve({...gameSnapshot(),notice:pending.notice||null});
+  },pending.remaining);
 }
 function endPythonControl(pause=true) {
   settlePythonStep(new Error('程序已停止。'));pythonControl=null;
@@ -249,18 +284,17 @@ function beginPythonControl() {
 function pythonCommand(command) {
   if (!pythonControl) return Promise.reject(new Error('程序已经停止。'));
   if (command==='R') {reset(false);pythonControl.manualPaused=false;return Promise.resolve(gameSnapshot());}
-  if (state==='over'||state==='won')return Promise.reject(new Error('本局已结束，请先输出 R 重置。'));
   if (command==='T') {
+    if(state==='over'||state==='won')return Promise.resolve({...gameSnapshot(),notice:'本局已结束，输出 R 可重置；Python 程序继续执行。'});
     pythonControl.manualPaused=false;setTool('play');state='running';updateUI();schedule();return Promise.resolve(gameSnapshot());
   }
   const name={W:'up',A:'left',S:'down',D:'right'}[command];
   if(!name)return Promise.reject(new Error('未知指令。'));
   const next=DIRECTIONS[name];
-  if(snake.length>1&&next.x===-direction.x&&next.y===-direction.y)return Promise.reject(new Error('小蛇长度超过一格时，不能直接反向。'));
   return new Promise((resolve,reject)=>{
-    pythonControl.pending={direction:next,resolve,reject};
-    if(!pythonControl.manualPaused){state='running';updateUI();}
-    if(state==='running'&&!timer)schedule();
+    pythonControl.pending={direction:next,resolve,reject,remaining:PYTHON_COMMAND_DELAY,timeout:null,executed:false};
+    if(!pythonControl.manualPaused&&state!=='over'&&state!=='won'){state='running';updateUI();}
+    schedulePythonStep();
   });
 }
 window.snakeGame={snapshot:gameSnapshot,begin:beginPythonControl,command:pythonCommand,end:endPythonControl};
