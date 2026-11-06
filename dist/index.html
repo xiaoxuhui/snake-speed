@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f6ee">
+  <meta name="description" content="随心调整速度，玩一局轻松的贪吃蛇。支持键盘、滑动和触屏方向按钮。">
+  <title>贪吃蛇 · 随心调速</title>
+  <style>
+    :root{font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif;color:#263d2e;background:#f5f6ee;font-synthesis:none;--green:#326947;--muted:#758172;--line:#dfe5d7}
+    *{box-sizing:border-box}body{margin:0}button,input{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid #b5cf7e;outline-offset:4px}
+    .shell{max-width:1000px;margin:auto;padding:32px 32px 24px}.brand{display:flex;gap:10px;align-items:center;font-weight:700;font-size:15px;letter-spacing:.05em}.brand svg{width:30px;height:30px}.topline{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:22px}.tag{font-size:12px;color:var(--muted);letter-spacing:.09em}
+    header{margin:35px 0 26px}h1{margin:0 0 10px;font-size:36px;letter-spacing:-1px;font-weight:750}header p{margin:0;color:var(--muted);font-size:14px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:28px;align-items:start}
+    .board-card{padding:14px;background:#fffef9;border:1px solid var(--line);border-radius:22px;box-shadow:0 10px 40px #314d2910}.board-wrap{position:relative;aspect-ratio:1;border-radius:12px;overflow:hidden;background:#edf1e5}canvas{width:100%;height:100%;display:block;touch-action:none;outline:none}.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;background:#f0f3e68c;backdrop-filter:blur(3px);padding:20px;pointer-events:none}.overlay[hidden]{display:none}.overlay-content{background:#fffef9f2;border:1px solid #dfe6d6;border-radius:20px;padding:27px 32px;box-shadow:0 8px 30px #2948290a}.overlay-icon{font-size:26px;margin-bottom:10px}.overlay h2{margin:0 0 9px;font-size:23px}.overlay p{margin:0;color:var(--muted);font-size:13px;line-height:1.7}.board-foot{display:flex;justify-content:space-between;align-items:center;padding:14px 3px 2px;color:var(--muted);font-size:12px}.status{display:flex;gap:7px;align-items:center}.dot{width:7px;height:7px;background:#a6b09a;border-radius:50%}.dot.active{background:#568147;box-shadow:0 0 0 3px #e5eddb}
+    .side{display:flex;flex-direction:column;gap:20px}.scores{display:grid;grid-template-columns:1fr 1fr;gap:12px}.score{padding:18px 16px;background:#e8eddc;border-radius:15px}.score.best{background:#eeeee4}.score-label{font-size:12px;color:var(--muted);margin-bottom:8px}.score-value{font-size:31px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}.panel{padding:21px;border:1px solid var(--line);border-radius:17px;background:#fffef980}.panel-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:17px}.panel h2{margin:0;font-size:14px;font-weight:650}.speed-number{font-size:22px;font-weight:700}.speed-number small{font-size:11px;color:var(--muted);font-weight:400;margin-left:4px}input[type=range]{width:100%;margin:4px 0 12px;accent-color:var(--green);cursor:pointer}.range-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}.hint{margin:15px 0 0;font-size:12px;color:var(--muted);line-height:1.6}.actions{display:grid;gap:10px}.primary,.secondary{border-radius:12px;padding:13px 16px;font-size:14px;font-weight:600;transition:background .15s,transform .15s}.primary{color:#fff;background:var(--green);border:1px solid var(--green)}.primary:hover{background:#285b3b}.secondary{color:#52634f;background:transparent;border:1px solid #d5ddce}.secondary:hover{background:#e9edde}button:active{transform:translateY(1px)}.instructions{padding:0 3px;font-size:12px;color:var(--muted);line-height:1.9}.instructions p{margin:0 0 9px}.keys{display:inline-flex;gap:3px;vertical-align:middle;margin-right:7px}kbd{font-family:inherit;min-width:22px;height:23px;display:inline-flex;align-items:center;justify-content:center;background:#fffef9;border:1px solid #dce2d3;border-bottom-width:2px;border-radius:5px;color:#52664e;font-size:11px;padding:0 5px}.dpad{display:grid;grid-template-columns:repeat(3,43px);grid-template-rows:repeat(2,36px);justify-content:center;gap:5px;margin-top:7px}.dpad button{border:1px solid #d6decc;border-radius:8px;background:#fffef9;color:var(--green);font-size:18px;touch-action:manipulation;user-select:none}.dpad button:hover{background:#e7eedc}.dpad [data-dir=up]{grid-column:2}.dpad [data-dir=left]{grid-column:1;grid-row:2}.dpad [data-dir=down]{grid-column:2;grid-row:2}.dpad [data-dir=right]{grid-column:3;grid-row:2}footer{font-size:11px;color:#929a89;margin-top:25px;display:flex;justify-content:space-between;gap:10px}
+    @media(max-width:720px){.shell{max-width:540px;padding:22px 18px}header{margin:25px 0 21px}h1{font-size:30px}.layout{grid-template-columns:1fr;gap:20px}.side{display:grid;grid-template-columns:1fr 1fr;gap:14px}.scores{grid-column:1/-1}.score{padding:12px 16px;display:flex;align-items:center;justify-content:space-between}.score-label{margin:0}.score-value{font-size:27px}.panel{padding:16px}.actions{align-content:center}.instructions{grid-column:1/-1;text-align:center}.dpad{grid-template-columns:repeat(3,58px);grid-template-rows:repeat(2,42px)}.board-card{padding:10px;border-radius:18px}.tag{font-size:10px}.overlay-content{padding:22px}.board-foot{font-size:11px}}
+    @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+  </style>
+</head>
+<body>
+<main class="shell">
+  <div class="topline"><div class="brand"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#e2eacf"/><path d="M9 12h12a4 4 0 0 1 0 8h-8a3 3 0 0 0 0 6" stroke="#326947" stroke-width="5" stroke-linecap="round"/><circle cx="10" cy="11" r="1" fill="#fff"/></svg> 贪吃蛇</div><span class="tag">一口一口，慢慢来。</span></div>
+  <header><h1>按自己的节奏，玩一局。</h1><p>吃掉小果子，让小蛇长大。快慢，由你决定。</p></header>
+  <div class="layout">
+    <section class="board-card" aria-label="游戏区域">
+      <div class="board-wrap">
+        <canvas id="board" width="576" height="576" tabindex="0" aria-label="贪吃蛇棋盘，方向键或 WASD 移动，空格开始或暂停"></canvas>
+        <div class="overlay" id="overlay"><div class="overlay-content"><div class="overlay-icon" id="overlay-icon" aria-hidden="true">✦</div><h2 id="overlay-title">准备好出发了吗？</h2><p id="overlay-text">点击「开始游戏」<br>或按空格键，吃到第一颗果子。</p></div></div>
+      </div>
+      <div class="board-foot"><span class="status"><i class="dot" id="status-dot"></i><span id="status-text" role="status" aria-live="polite">等待开始</span></span><span>碰到边界或自己，游戏结束</span></div>
+    </section>
+    <aside class="side" aria-label="游戏控制">
+      <div class="scores"><div class="score"><div class="score-label">本局得分</div><div class="score-value" id="score">0</div></div><div class="score best"><div class="score-label">最高纪录</div><div class="score-value" id="best">0</div></div></div>
+      <section class="panel"><div class="panel-heading"><h2><label for="speed">移动速度</label></h2><output class="speed-number" id="speed-value" for="speed">7<small>格 / 秒</small></output></div><input type="range" id="speed" min="2" max="20" step="1" value="7" aria-label="移动速度，单位格每秒"><div class="range-labels"><span>慢慢悠悠</span><span>风驰电掣</span></div><p class="hint">拖动滑块，速度立即生效。</p></section>
+      <div class="actions"><button class="primary" id="play">开始游戏 <span aria-hidden="true">↗</span></button><button class="secondary" id="restart">↻ &nbsp;重新开始</button></div>
+      <div class="instructions"><p><span class="keys"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></span>或 WASD 控制方向<br><kbd>空格</kbd> 开始 / 暂停 · <kbd>R</kbd> 重新开始</p><div class="dpad" aria-label="触屏方向控制"><button data-dir="up" aria-label="向上">↑</button><button data-dir="left" aria-label="向左">←</button><button data-dir="down" aria-label="向下">↓</button><button data-dir="right" aria-label="向右">→</button></div><p class="hint">也可以在棋盘上滑动转向</p></div>
+    </aside>
+  </div>
+  <footer><span>简单一点，快乐一点。</span><span>最高纪录保存在本机</span></footer>
+</main>
+<script src="game.js"></script>
+</body>
+</html>

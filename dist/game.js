@@ -1,0 +1,132 @@
+'use strict';
+const $ = id => document.getElementById(id);
+const canvas = $('board');
+const ctx = canvas.getContext('2d');
+const SIZE = 24, CELL = 24, WIDTH = SIZE * CELL;
+const DIRECTIONS = {up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};
+let snake, direction, turns, food, score, state, timer, speed = 7, best = 0;
+try { const stored = Number(localStorage.getItem('snake-speed-best')); if (Number.isFinite(stored) && stored >= 0) best = Math.floor(stored); } catch {}
+$('best').textContent = best;
+function spawnFood() {
+  const occupied = new Set(snake.map(p => p.y * SIZE + p.x));
+  const empty = [];
+  for (let i=0;i<SIZE*SIZE;i++) if (!occupied.has(i)) empty.push(i);
+  if (!empty.length) return null;
+  const index = empty[Math.floor(Math.random()*empty.length)];
+  return {x:index%SIZE,y:Math.floor(index/SIZE)};
+}
+function reset(start = false) {
+  clearTimeout(timer);
+  snake = [{x:9,y:12},{x:8,y:12},{x:7,y:12},{x:6,y:12}];
+  direction = DIRECTIONS.right; turns = []; score = 0; state = 'ready';
+  food = {x:16,y:12};
+  $('score').textContent = score;
+  updateUI(); draw();
+  if (start) togglePlay();
+}
+function schedule() { clearTimeout(timer); if (state === 'running') timer = setTimeout(tick,1000/speed); }
+function togglePlay() {
+  if (state === 'over' || state === 'won') { reset(true); return; }
+  state = state === 'running' ? 'paused' : 'running';
+  updateUI(); schedule();
+}
+function finish(won = false) { state = won ? 'won' : 'over'; clearTimeout(timer); updateUI(); }
+function tick() {
+  if (state !== 'running') return;
+  if (turns.length) direction = turns.shift();
+  const head = {x:snake[0].x+direction.x,y:snake[0].y+direction.y};
+  const eating = food && head.x === food.x && head.y === food.y;
+  // The tail moves away on a normal step, so its current square is safe.
+  const body = eating ? snake : snake.slice(0,-1);
+  if (head.x<0 || head.x>=SIZE || head.y<0 || head.y>=SIZE || body.some(p=>p.x===head.x && p.y===head.y)) { finish(); return; }
+  snake.unshift(head);
+  if (eating) {
+    score += 10; $('score').textContent = score;
+    if (score > best) { best = score; $('best').textContent = best; try { localStorage.setItem('snake-speed-best',String(best)); } catch {} }
+    food = spawnFood();
+    if (!food) { draw(); finish(true); return; }
+  } else snake.pop();
+  draw(); schedule();
+}
+function turn(name) {
+  if (state === 'ready') togglePlay();
+  if (state !== 'running' || turns.length >= 2) return;
+  const next = DIRECTIONS[name], previous = turns.length ? turns[turns.length-1] : direction;
+  if (next.x === previous.x && next.y === previous.y) return;
+  if (next.x === -previous.x && next.y === -previous.y) return;
+  turns.push(next);
+}
+function updateUI() {
+  const running = state === 'running';
+  $('overlay').hidden = running;
+  $('status-dot').classList.toggle('active',running);
+  $('status-text').textContent = {ready:'等待开始',running:'正在游戏',paused:'已暂停',over:'游戏结束',won:'挑战完成'}[state];
+  $('play').textContent = {ready:'开始游戏 ↗',running:'Ⅱ 暂停游戏',paused:'继续游戏 ↗',over:'再玩一局 ↗',won:'再玩一局 ↗'}[state];
+  const messages = {
+    ready:['✦','准备好出发了吗？','点击「开始游戏」\n或按空格键，吃到第一颗果子。'],
+    paused:['Ⅱ','休息一下','点击「继续游戏」或按空格键继续。'],
+    over:['↻','再来一局？',`本局得分 ${score} 分\n调整一下速度，再出发。`],
+    won:['✦','你填满了整个棋盘！',`本局得分 ${score} 分，太棒了！`]
+  };
+  if (messages[state]) {
+    const [icon,title,message] = messages[state];
+    $('overlay-icon').textContent=icon; $('overlay-title').textContent=title;
+    $('overlay-text').textContent=message; $('overlay-text').style.whiteSpace='pre-line';
+  }
+}
+function rounded(x,y,w,h,r,color) { ctx.fillStyle=color; ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fill(); }
+function draw() {
+  ctx.clearRect(0,0,WIDTH,WIDTH);
+  ctx.fillStyle='#edf1e5'; ctx.fillRect(0,0,WIDTH,WIDTH);
+  ctx.strokeStyle='#e1e8d7'; ctx.lineWidth=.7;
+  ctx.beginPath();
+  for (let i=1;i<SIZE;i++) { ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,WIDTH);ctx.moveTo(0,i*CELL);ctx.lineTo(WIDTH,i*CELL); }
+  ctx.stroke();
+  if (food) {
+    const x=food.x*CELL+CELL/2,y=food.y*CELL+CELL/2;
+    ctx.fillStyle='#db805b';ctx.beginPath();ctx.arc(x,y+1,8,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#6b854b';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(x,y-6);ctx.quadraticCurveTo(x+1,y-12,x+6,y-10);ctx.stroke();
+    ctx.fillStyle='#edb79a';ctx.beginPath();ctx.arc(x-3,y-2,2,0,Math.PI*2);ctx.fill();
+  }
+  snake.forEach((p,i)=>rounded(p.x*CELL+1.5,p.y*CELL+1.5,CELL-3,CELL-3,i===0?7:5,i===0?'#326947':i%2?'#89a65d':'#94af68'));
+  const h=snake[0],cx=h.x*CELL+CELL/2,cy=h.y*CELL+CELL/2;
+  const px=-direction.y,py=direction.x;
+  for (const side of [-1,1]) {
+    const ex=cx+direction.x*5+px*side*4,ey=cy+direction.y*5+py*side*4;
+    ctx.fillStyle='#fffef5';ctx.beginPath();ctx.arc(ex,ey,2.6,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#263d2e';ctx.beginPath();ctx.arc(ex+direction.x*.8,ey+direction.y*.8,1.2,0,Math.PI*2);ctx.fill();
+  }
+}
+function fitCanvas() {
+  const ratio = Math.min(window.devicePixelRatio || 1,3);
+  const pixels = Math.max(1,Math.round(canvas.getBoundingClientRect().width*ratio));
+  canvas.width=pixels;canvas.height=pixels;ctx.setTransform(pixels/WIDTH,0,0,pixels/WIDTH,0,0);draw();
+}
+$('play').addEventListener('click',togglePlay);
+$('restart').addEventListener('click',()=>reset(true));
+$('speed').addEventListener('input',event=>{
+  speed=Number(event.target.value);
+  $('speed-value').innerHTML=`${speed}<small>格 / 秒</small>`;
+  schedule();
+});
+document.querySelectorAll('[data-dir]').forEach(button=>button.addEventListener('click',()=>turn(button.dataset.dir)));
+document.addEventListener('keydown',event=>{
+  if (event.ctrlKey || event.metaKey || event.altKey || event.target.matches('input,textarea,select,[contenteditable=true]')) return;
+  const key=event.key.toLowerCase();
+  const map={arrowup:'up',w:'up',arrowdown:'down',s:'down',arrowleft:'left',a:'left',arrowright:'right',d:'right'};
+  if (map[key]) { event.preventDefault();turn(map[key]); }
+  else if (key===' ' && !event.target.closest('button')) { event.preventDefault();if(!event.repeat) togglePlay(); }
+  else if (key==='r' && !event.repeat) { event.preventDefault();reset(true); }
+});
+let pointerStart=null;
+canvas.addEventListener('pointerdown',event=>{pointerStart={x:event.clientX,y:event.clientY,id:event.pointerId};canvas.setPointerCapture(event.pointerId);});
+canvas.addEventListener('pointerup',event=>{
+  if (!pointerStart || event.pointerId!==pointerStart.id) return;
+  const dx=event.clientX-pointerStart.x,dy=event.clientY-pointerStart.y;pointerStart=null;
+  if (Math.max(Math.abs(dx),Math.abs(dy))<15) return;
+  turn(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
+});
+canvas.addEventListener('pointercancel',()=>{pointerStart=null;});
+document.addEventListener('visibilitychange',()=>{if (document.hidden && state==='running') togglePlay();});
+reset();
+new ResizeObserver(fitCanvas).observe(canvas);
