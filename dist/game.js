@@ -5,6 +5,7 @@ const ctx = canvas.getContext('2d');
 const SIZE = 24, CELL = 24, WIDTH = SIZE * CELL;
 const DIRECTIONS = {up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};
 let snake, direction, turns, food, score, state, timer, speed = 7, best = 0;
+let tool = 'play', guides = [], guideHistory = [], draft = null, pointerStart = null;
 try { const stored = Number(localStorage.getItem('snake-speed-best')); if (Number.isFinite(stored) && stored >= 0) best = Math.floor(stored); } catch {}
 $('best').textContent = best;
 function spawnFood() {
@@ -26,6 +27,7 @@ function reset(start = false) {
 }
 function schedule() { clearTimeout(timer); if (state === 'running') timer = setTimeout(tick,1000/speed); }
 function togglePlay() {
+  if (tool !== 'play') setTool('play');
   if (state === 'over' || state === 'won') { reset(true); return; }
   state = state === 'running' ? 'paused' : 'running';
   updateUI(); schedule();
@@ -49,6 +51,7 @@ function tick() {
   draw(); schedule();
 }
 function turn(name) {
+  if (tool !== 'play') return;
   if (state === 'ready') togglePlay();
   if (state !== 'running' || turns.length >= 2) return;
   const next = DIRECTIONS[name], previous = turns.length ? turns[turns.length-1] : direction;
@@ -58,7 +61,7 @@ function turn(name) {
 }
 function updateUI() {
   const running = state === 'running';
-  $('overlay').hidden = running;
+  $('overlay').hidden = running || tool !== 'play';
   $('status-dot').classList.toggle('active',running);
   $('status-text').textContent = {ready:'等待开始',running:'正在游戏',paused:'已暂停',over:'游戏结束',won:'挑战完成'}[state];
   $('play').textContent = {ready:'开始游戏 ↗',running:'Ⅱ 暂停游戏',paused:'继续游戏 ↗',over:'再玩一局 ↗',won:'再玩一局 ↗'}[state];
@@ -82,6 +85,7 @@ function draw() {
   ctx.beginPath();
   for (let i=1;i<SIZE;i++) { ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,WIDTH);ctx.moveTo(0,i*CELL);ctx.lineTo(WIDTH,i*CELL); }
   ctx.stroke();
+  drawGuides();
   if (food) {
     const x=food.x*CELL+CELL/2,y=food.y*CELL+CELL/2;
     ctx.fillStyle='#db805b';ctx.beginPath();ctx.arc(x,y+1,8,0,Math.PI*2);ctx.fill();
@@ -118,15 +122,103 @@ document.addEventListener('keydown',event=>{
   else if (key===' ' && !event.target.closest('button')) { event.preventDefault();if(!event.repeat) togglePlay(); }
   else if (key==='r' && !event.repeat) { event.preventDefault();reset(true); }
 });
-let pointerStart=null;
-canvas.addEventListener('pointerdown',event=>{pointerStart={x:event.clientX,y:event.clientY,id:event.pointerId};canvas.setPointerCapture(event.pointerId);});
+function setTool(next) {
+  pointerStart = null; draft = null;
+  if (next !== 'play' && state === 'running') { state = 'paused'; clearTimeout(timer); }
+  tool = next;
+  document.querySelector('.board-wrap').dataset.tool = tool;
+  document.querySelectorAll('button[data-tool]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.tool===tool)));
+  updateGuideUI(); updateUI(); draw();
+}
+function updateGuideUI() {
+  $('undo-guide').disabled = !guideHistory.length;
+  $('clear-guides').disabled = !guides.length;
+  $('guide-hint').textContent = {
+    play:'辅助线会保留；选「直线」或「画笔」可继续绘制。',
+    line:'拖动起点到终点画直线。点击开始 / 继续游戏后保留辅助线。',
+    pen:'按住鼠标或手指自由画线。点击开始 / 继续游戏后保留辅助线。',
+    erase:'拖动擦除经过的辅助线；误删可以撤销。'
+  }[tool];
+}
+function rememberGuides() {
+  guideHistory.push(guides.slice());
+  if (guideHistory.length>40) guideHistory.shift();
+}
+function drawGuides() {
+  ctx.save();ctx.strokeStyle='#428aa3';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';ctx.globalAlpha=.8;
+  for (const stroke of draft ? [...guides,draft] : guides) {
+    ctx.setLineDash(stroke.type==='line'?[8,5]:[]);
+    ctx.beginPath();stroke.points.forEach((p,i)=>i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));ctx.stroke();
+  }
+  ctx.restore();
+}
+function boardPoint(event) {
+  const rect=canvas.getBoundingClientRect();
+  return {x:Math.max(0,Math.min(WIDTH,(event.clientX-rect.left)*WIDTH/rect.width)),y:Math.max(0,Math.min(WIDTH,(event.clientY-rect.top)*WIDTH/rect.height))};
+}
+function pointDistance(p,a,b) {
+  const dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;
+  const t=length ? Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/length)) : 0;
+  return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);
+}
+function segmentsNear(a,b,c,d) {
+  const cross=(p,q,r)=>(q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x);
+  if (cross(a,b,c)*cross(a,b,d)<0 && cross(c,d,a)*cross(c,d,b)<0) return true;
+  return Math.min(pointDistance(a,c,d),pointDistance(b,c,d),pointDistance(c,a,b),pointDistance(d,a,b))<=10;
+}
+function eraseGuides(from,to) {
+  const remaining=guides.filter(stroke=>!stroke.points.some((p,i)=>i>0 && segmentsNear(from,to,stroke.points[i-1],p)));
+  if (remaining.length===guides.length) return;
+  if (!pointerStart.erased) { rememberGuides(); pointerStart.erased=true; }
+  guides=remaining;updateGuideUI();draw();
+}
+function moveDrawing(event) {
+  const point=boardPoint(event);
+  if (tool==='line') draft.points[1]=point;
+  else if (tool==='pen') {
+    const last=draft.points[draft.points.length-1];
+    if (Math.hypot(point.x-last.x,point.y-last.y)>1.5 && draft.points.length<2048) draft.points.push(point);
+  } else if (tool==='erase') eraseGuides(pointerStart.last,point);
+  pointerStart.last=point;draw();
+}
+document.querySelectorAll('button[data-tool]').forEach(button=>button.addEventListener('click',()=>setTool(button.dataset.tool)));
+$('undo-guide').addEventListener('click',()=>{
+  if (!guideHistory.length) return;
+  pointerStart=null;draft=null;guides=guideHistory.pop();updateGuideUI();draw();
+});
+$('clear-guides').addEventListener('click',()=>{
+  if (!guides.length) return;
+  rememberGuides();pointerStart=null;draft=null;guides=[];updateGuideUI();draw();
+});
+canvas.addEventListener('pointerdown',event=>{
+  if (pointerStart || event.button!==0) return;
+  const point=boardPoint(event);
+  pointerStart={x:event.clientX,y:event.clientY,id:event.pointerId,last:point,erased:false};
+  canvas.setPointerCapture(event.pointerId);
+  if (tool==='line' || tool==='pen') draft={type:tool,points:[point,point]};
+  else if (tool==='erase') eraseGuides(point,point);
+  draw();
+});
+canvas.addEventListener('pointermove',event=>{
+  if (!pointerStart || event.pointerId!==pointerStart.id || tool==='play') return;
+  moveDrawing(event);
+});
 canvas.addEventListener('pointerup',event=>{
   if (!pointerStart || event.pointerId!==pointerStart.id) return;
-  const dx=event.clientX-pointerStart.x,dy=event.clientY-pointerStart.y;pointerStart=null;
-  if (Math.max(Math.abs(dx),Math.abs(dy))<15) return;
-  turn(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
+  if (tool==='play') {
+    const dx=event.clientX-pointerStart.x,dy=event.clientY-pointerStart.y;
+    if (Math.max(Math.abs(dx),Math.abs(dy))>=15) turn(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
+  } else {
+    moveDrawing(event);
+    if (draft && draft.points.some(p=>Math.hypot(p.x-draft.points[0].x,p.y-draft.points[0].y)>2)) {
+      rememberGuides();guides=[...guides,draft];
+    }
+  }
+  pointerStart=null;draft=null;updateGuideUI();draw();
 });
-canvas.addEventListener('pointercancel',()=>{pointerStart=null;});
+function cancelDrawing() { pointerStart=null;draft=null;draw(); }
+canvas.addEventListener('pointercancel',cancelDrawing);
+canvas.addEventListener('lostpointercapture',cancelDrawing);
 document.addEventListener('visibilitychange',()=>{if (document.hidden && state==='running') togglePlay();});
 reset();
 new ResizeObserver(fitCanvas).observe(canvas);
