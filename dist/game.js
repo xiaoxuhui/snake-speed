@@ -6,6 +6,7 @@ const SIZE = 24, CELL = 24, WIDTH = SIZE * CELL;
 const DIRECTIONS = {up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};
 let snake, direction, turns, food, score, state, timer, speed = 7, best = 0;
 let tool = 'play', guides = [], guideHistory = [], draft = null, pointerStart = null;
+let pythonControl = null;
 try { const stored = Number(localStorage.getItem('snake-speed-best')); if (Number.isFinite(stored) && stored >= 0) best = Math.floor(stored); } catch {}
 $('best').textContent = best;
 function spawnFood() {
@@ -18,23 +19,29 @@ function spawnFood() {
 }
 function reset(start = false) {
   clearTimeout(timer);
-  snake = [{x:9,y:12},{x:8,y:12},{x:7,y:12},{x:6,y:12}];
+  snake = [{x:0,y:0}];
   direction = DIRECTIONS.right; turns = []; score = 0; state = 'ready';
-  food = {x:16,y:12};
+  food = spawnFood();
   $('score').textContent = score;
   updateUI(); draw();
   if (start) togglePlay();
 }
-function schedule() { clearTimeout(timer); if (state === 'running') timer = setTimeout(tick,1000/speed); }
+function schedule() { clearTimeout(timer); timer=null; if (state === 'running') timer = setTimeout(tick,1000/speed); }
 function togglePlay() {
   if (tool !== 'play') setTool('play');
-  if (state === 'over' || state === 'won') { reset(true); return; }
+  if (state === 'over' || state === 'won') { window.stopPythonProgram?.(); reset(true); return; }
   state = state === 'running' ? 'paused' : 'running';
+  if (pythonControl) pythonControl.manualPaused = state === 'paused';
   updateUI(); schedule();
 }
-function finish(won = false) { state = won ? 'won' : 'over'; clearTimeout(timer); updateUI(); }
+function finish(won = false) {
+  state = won ? 'won' : 'over'; clearTimeout(timer);timer=null;updateUI();
+  settlePythonStep(won ? null : new Error('游戏结束：小蛇撞到了边界或自身。可用 print("R") 重置。'));
+}
 function tick() {
+  timer=null;
   if (state !== 'running') return;
+  if (pythonControl?.pending) { direction=pythonControl.pending.direction;turns=[]; }
   if (turns.length) direction = turns.shift();
   const head = {x:snake[0].x+direction.x,y:snake[0].y+direction.y};
   const eating = food && head.x === food.x && head.y === food.y;
@@ -48,15 +55,16 @@ function tick() {
     food = spawnFood();
     if (!food) { draw(); finish(true); return; }
   } else snake.pop();
-  draw(); schedule();
+  draw(); settlePythonStep(); schedule();
 }
 function turn(name) {
+  if (pythonControl) return;
   if (tool !== 'play') return;
   if (state === 'ready') togglePlay();
   if (state !== 'running' || turns.length >= 2) return;
   const next = DIRECTIONS[name], previous = turns.length ? turns[turns.length-1] : direction;
   if (next.x === previous.x && next.y === previous.y) return;
-  if (next.x === -previous.x && next.y === -previous.y) return;
+  if (snake.length > 1 && next.x === -previous.x && next.y === -previous.y) return;
   turns.push(next);
 }
 function updateUI() {
@@ -66,7 +74,7 @@ function updateUI() {
   $('status-text').textContent = {ready:'等待开始',running:'正在游戏',paused:'已暂停',over:'游戏结束',won:'挑战完成'}[state];
   $('play').textContent = {ready:'开始游戏 ↗',running:'Ⅱ 暂停游戏',paused:'继续游戏 ↗',over:'再玩一局 ↗',won:'再玩一局 ↗'}[state];
   const messages = {
-    ready:['✦','准备好出发了吗？','点击「开始游戏」\n或按空格键，吃到第一颗果子。'],
+    ready:['✦','从左上角的一格出发','点击「运行 Python」\n程序会自动控制，无需按方向键。'],
     paused:['Ⅱ','休息一下','点击「继续游戏」或按空格键继续。'],
     over:['↻','再来一局？',`本局得分 ${score} 分\n调整一下速度，再出发。`],
     won:['✦','你填满了整个棋盘！',`本局得分 ${score} 分，太棒了！`]
@@ -107,7 +115,8 @@ function fitCanvas() {
   canvas.width=pixels;canvas.height=pixels;ctx.setTransform(pixels/WIDTH,0,0,pixels/WIDTH,0,0);draw();
 }
 $('play').addEventListener('click',togglePlay);
-$('restart').addEventListener('click',()=>reset(true));
+function restartGame() { window.stopPythonProgram?.();reset(true); }
+$('restart').addEventListener('click',restartGame);
 $('speed').addEventListener('input',event=>{
   speed=Number(event.target.value);
   $('speed-value').innerHTML=`${speed}<small>格 / 秒</small>`;
@@ -120,11 +129,12 @@ document.addEventListener('keydown',event=>{
   const map={arrowup:'up',w:'up',arrowdown:'down',s:'down',arrowleft:'left',a:'left',arrowright:'right',d:'right'};
   if (map[key]) { event.preventDefault();turn(map[key]); }
   else if (key===' ' && !event.target.closest('button')) { event.preventDefault();if(!event.repeat) togglePlay(); }
-  else if (key==='r' && !event.repeat) { event.preventDefault();reset(true); }
+  else if (key==='r' && !event.repeat) { event.preventDefault();restartGame(); }
 });
 function setTool(next) {
   pointerStart = null; draft = null;
   if (next !== 'play' && state === 'running') { state = 'paused'; clearTimeout(timer); }
+  if (next !== 'play' && pythonControl) pythonControl.manualPaused=true;
   tool = next;
   document.querySelector('.board-wrap').dataset.tool = tool;
   document.querySelectorAll('button[data-tool]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.tool===tool)));
@@ -219,6 +229,41 @@ canvas.addEventListener('pointerup',event=>{
 function cancelDrawing() { pointerStart=null;draft=null;draw(); }
 canvas.addEventListener('pointercancel',cancelDrawing);
 canvas.addEventListener('lostpointercapture',cancelDrawing);
+function gameSnapshot() {
+  return {size:SIZE,head:[snake[0].x,snake[0].y],snake:snake.map(p=>[p.x,p.y]),food:food?[food.x,food.y]:null,
+    direction:Object.keys(DIRECTIONS).find(k=>DIRECTIONS[k].x===direction.x&&DIRECTIONS[k].y===direction.y),score,speed,status:state};
+}
+function settlePythonStep(error=null) {
+  if (!pythonControl?.pending) return;
+  const pending=pythonControl.pending;pythonControl.pending=null;
+  if(error) pending.reject(error);else pending.resolve(gameSnapshot());
+}
+function endPythonControl(pause=true) {
+  settlePythonStep(new Error('程序已停止。'));pythonControl=null;
+  if(pause&&state==='running')state='paused';
+  schedule();updateUI();
+}
+function beginPythonControl() {
+  endPythonControl(true);setTool('play');pythonControl={pending:null,manualPaused:false};return gameSnapshot();
+}
+function pythonCommand(command) {
+  if (!pythonControl) return Promise.reject(new Error('程序已经停止。'));
+  if (command==='R') {reset(false);pythonControl.manualPaused=false;return Promise.resolve(gameSnapshot());}
+  if (state==='over'||state==='won')return Promise.reject(new Error('本局已结束，请先输出 R 重置。'));
+  if (command==='T') {
+    pythonControl.manualPaused=false;setTool('play');state='running';updateUI();schedule();return Promise.resolve(gameSnapshot());
+  }
+  const name={W:'up',A:'left',S:'down',D:'right'}[command];
+  if(!name)return Promise.reject(new Error('未知指令。'));
+  const next=DIRECTIONS[name];
+  if(snake.length>1&&next.x===-direction.x&&next.y===-direction.y)return Promise.reject(new Error('小蛇长度超过一格时，不能直接反向。'));
+  return new Promise((resolve,reject)=>{
+    pythonControl.pending={direction:next,resolve,reject};
+    if(!pythonControl.manualPaused){state='running';updateUI();}
+    if(state==='running'&&!timer)schedule();
+  });
+}
+window.snakeGame={snapshot:gameSnapshot,begin:beginPythonControl,command:pythonCommand,end:endPythonControl};
 document.addEventListener('visibilitychange',()=>{if (document.hidden && state==='running') togglePlay();});
 reset();
 new ResizeObserver(fitCanvas).observe(canvas);
