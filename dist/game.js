@@ -4,10 +4,10 @@ const canvas = $('board');
 const ctx = canvas.getContext('2d');
 const SIZE = 24, CELL = 24, WIDTH = SIZE * CELL;
 const DIRECTIONS = {up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};
-let snake, direction, turns, food, score, state, timer, speed = 7, best = 0;
+let snake, direction, turns, food, score, state, timer, best = 0;
 let tool = 'play', guides = [], guideHistory = [], draft = null, pointerStart = null;
 let pythonControl = null;
-const PYTHON_COMMAND_DELAY = 300;
+let stepInterval = Number($('speed').value);
 try { const stored = Number(localStorage.getItem('snake-speed-best')); if (Number.isFinite(stored) && stored >= 0) best = Math.floor(stored); } catch {}
 $('best').textContent = best;
 function spawnFood() {
@@ -29,7 +29,7 @@ function reset() {
 function schedule() {
   clearTimeout(timer);timer=null;
   if(pythonControl){schedulePythonStep();return;}
-  if(state==='running')timer=setTimeout(tick,1000/speed);
+  if(state==='running')timer=setTimeout(tick,stepInterval);
 }
 function togglePlay() {
   if (tool !== 'play') setTool('play');
@@ -122,8 +122,10 @@ function restartGame() {
 }
 $('restart').addEventListener('click',restartGame);
 $('speed').addEventListener('input',event=>{
-  speed=Number(event.target.value);
-  $('speed-value').innerHTML=`${speed}<small>格 / 秒</small>`;
+  stepInterval = Number(event.target.value);
+  $('speed-value').innerHTML = `${(stepInterval / 1000).toFixed(2)}<small>秒 / 格</small>`;
+  const pending = pythonControl?.pending;
+  if (pending) pausePythonDelay(pending);
   schedule();
 });
 document.querySelectorAll('[data-dir]').forEach(button=>button.addEventListener('click',()=>turn(button.dataset.dir)));
@@ -236,7 +238,8 @@ canvas.addEventListener('pointercancel',cancelDrawing);
 canvas.addEventListener('lostpointercapture',cancelDrawing);
 function gameSnapshot() {
   return {size:SIZE,head:[snake[0].x,snake[0].y],snake:snake.map(p=>[p.x,p.y]),food:food?[food.x,food.y]:null,
-    direction:Object.keys(DIRECTIONS).find(k=>DIRECTIONS[k].x===direction.x&&DIRECTIONS[k].y===direction.y),score,speed,status:state};
+    direction:Object.keys(DIRECTIONS).find(k=>DIRECTIONS[k].x===direction.x&&DIRECTIONS[k].y===direction.y),
+    score,speed:1000/stepInterval,status:state};
 }
 function settlePythonStep(error=null) {
   if (!pythonControl?.pending) return;
@@ -244,14 +247,17 @@ function settlePythonStep(error=null) {
   clearTimeout(pending.timeout);
   if(error) pending.reject(error);else pending.resolve(gameSnapshot());
 }
+function pausePythonDelay(pending) {
+  if (pending.timeout === null) return;
+  clearTimeout(pending.timeout);
+  pending.timeout = null;
+  pending.elapsed += performance.now() - pending.started;
+}
 function schedulePythonStep() {
   const control=pythonControl,pending=control?.pending;
   if(!pending)return;
   if(control.manualPaused){
-    if(pending.timeout!==null){
-      clearTimeout(pending.timeout);pending.timeout=null;
-      pending.remaining=Math.max(0,pending.remaining-(performance.now()-pending.started));
-    }
+    pausePythonDelay(pending);
     return;
   }
   if(pending.timeout!==null)return;
@@ -272,7 +278,7 @@ function schedulePythonStep() {
     if(pythonControl!==control||control.pending!==pending)return;
     control.pending=null;pending.timeout=null;
     pending.resolve({...gameSnapshot(),notice:pending.notice||null});
-  },pending.remaining);
+  },Math.max(0, stepInterval - pending.elapsed));
 }
 function endPythonControl(pause=true) {
   settlePythonStep(new Error('程序已停止。'));pythonControl=null;
@@ -294,7 +300,7 @@ function pythonCommand(command) {
   if(!name)return Promise.reject(new Error('未知指令。'));
   const next=DIRECTIONS[name];
   return new Promise((resolve,reject)=>{
-    pythonControl.pending={direction:next,resolve,reject,remaining:PYTHON_COMMAND_DELAY,timeout:null,executed:false};
+    pythonControl.pending={direction:next,resolve,reject,elapsed:0,timeout:null,executed:false};
     if(!pythonControl.manualPaused&&state!=='over'&&state!=='won'){state='running';updateUI();}
     schedulePythonStep();
   });

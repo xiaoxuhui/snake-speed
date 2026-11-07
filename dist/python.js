@@ -21,7 +21,7 @@ for command in cycle(make_route(get_state()["size"])):
     if get_state()["status"] == "won":
         break
     print(command)
-    # 每条方向输出都会自动移动一格，再等待 0.3 秒。
+    # 每条方向输出都会移动一格，再按「每步间隔」等待。
 `,
   square:`# 用函数与循环自动走一个方形。
 def side(direction, length):
@@ -121,7 +121,7 @@ function ensurePython(){
       };
       pythonRunner.chain=pythonRunner.chain.then(respond,respond);return;
     }
-    if(m.type==='running'){runnerStatus('边输出边移动：每条 WASD 立即走一格，自动等待 0.3 秒后执行后面的代码。');return;}
+    if(m.type==='running'){runnerStatus('边输出边移动。每条 WASD 立即走一格，再按「每步间隔」等待后执行下一句。');return;}
     if(m.type==='done'||m.type==='error'){
       pythonRunner.busy=false;window.snakeGame.end(true);updateRunnerButtons();
       if(m.type==='error'){programLog(m.message,'error');runnerStatus('程序遇到错误，详情见下方输出。修改后可以重新运行。');}
