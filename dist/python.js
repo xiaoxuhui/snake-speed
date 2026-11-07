@@ -91,7 +91,7 @@ function ensurePython(){
   pythonRunner.ready=new Promise((resolve,reject)=>{pythonRunner.readyResolve=resolve;pythonRunner.readyReject=reject;});
   pythonRunner.ready.catch(()=>{});
   let worker;
-  try{worker=new Worker(new URL('python-worker.js?v=python-v4',document.baseURI),{type:'module'});}
+  try{worker=new Worker(new URL('python-worker.js?v=python-v5',document.baseURI),{type:'module'});}
   catch(error){const promise=pythonRunner.ready;terminateRuntime();runtimeBadge('加载失败，可重试','error');return Promise.reject(error);}
   pythonRunner.worker=worker;
   worker.onmessage=event=>{
@@ -139,15 +139,15 @@ async function runPythonProgram(){
   if(pythonRunner.busy)return;
   const code=editor.value;if(!code.trim()){runnerStatus('先写一点 Python，或从菜单载入示例。');editor.focus();return;}
   saveCode();pythonRunner.busy=true;pythonRunner.lastNotice=null;const id=++pythonRunner.runId;pythonRunner.chain=Promise.resolve();
-  pythonRunner.logs=[];programLog('准备运行 Python…','system');runnerStatus('正在准备 Python 解释器…');updateRunnerButtons();
+  pythonRunner.logs=[];programLog('准备运行 Python…','system');runnerStatus('棋盘已自动重置，正在准备 Python 解释器；加载期间小蛇保持静止。');updateRunnerButtons();
   try{
+    const snapshot=window.snakeGame.begin();
     await ensurePython();
     if(id!==pythonRunner.runId||!pythonRunner.busy)return;
-    const snapshot=window.snakeGame.begin();
     pythonRunner.worker.postMessage({type:'run',runId:id,code,stdin:$('python-stdin').value,state:snapshot});
   }catch(error){
     if(id!==pythonRunner.runId)return;
-    pythonRunner.busy=false;programLog(error.message,'error');runnerStatus('启动失败，点击运行可重试。');updateRunnerButtons();
+    pythonRunner.busy=false;window.snakeGame.end(true);programLog(error.message,'error');runnerStatus('启动失败，点击运行可重试。');updateRunnerButtons();
   }
 }
 function stopPythonProgram(){

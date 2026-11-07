@@ -11,7 +11,9 @@ function makeGame() {
   const elements = new Map();
   function element(id) {
     if(!elements.has(id)) elements.set(id, {
-      textContent:'',style:{},dataset:{},classList:{toggle(){}},addEventListener(){},
+      textContent:'',style:{},dataset:{},listeners:new Map(),classList:{toggle(){}},
+      addEventListener(type,callback){this.listeners.set(type,callback);},
+      click(){this.listeners.get('click')?.({target:this});},
       getContext(){return paint;},getBoundingClientRect(){return {width:576,height:576,left:0,top:0};}
     });
     return elements.get(id);
@@ -26,6 +28,7 @@ function makeGame() {
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../dist/game.js'),'utf8'),context);
   return {
     api:context.window.snakeGame,
+    click(id){element(id).click();},
     snapshot(){return JSON.parse(JSON.stringify(context.window.snakeGame.snapshot()));},
     run(code){return vm.runInContext(code,context);},
     advance(ms){
@@ -111,7 +114,43 @@ test('a prohibited reversal is a game notice, rather than a Python exception',as
 });
 
 test('manual speed controls continue to drive automatic manual play',()=>{
-  const g=makeGame();g.run('speed=2;reset(true)');
+  const g=makeGame();g.run('speed=2;reset();togglePlay()');
   g.advance(499);assert.deepEqual(g.snapshot().head,[0,0]);
   g.advance(1);assert.deepEqual(g.snapshot().head,[1,0]);
+});
+
+test('Restart stops manual play and keeps the initial one-cell snake stationary',()=>{
+  const g=makeGame();g.run('speed=2;togglePlay()');g.advance(2000);
+  assert.deepEqual(g.snapshot().head,[4,0]);
+  g.click('restart');g.advance(10000);
+  assert.deepEqual(g.snapshot().snake,[[0,0]]);assert.equal(g.snapshot().status,'ready');
+  assert.equal(g.timers.size,0);
+});
+
+test('Restart during a Python delay cancels the pending command and leaves no stale movement',async()=>{
+  const g=makeGame();g.api.begin();
+  const cancelled=g.api.command('D').catch(error=>error.message);
+  g.advance(100);g.click('restart');
+  assert.equal(await cancelled,'程序已停止。');
+  g.advance(10000);assert.deepEqual(g.snapshot().snake,[[0,0]]);
+  assert.equal(g.snapshot().score,0);assert.equal(g.snapshot().status,'ready');assert.equal(g.timers.size,0);
+});
+
+test('each Python run resets after both a previous run and a game over',async()=>{
+  const g=makeGame();g.api.begin();
+  let pending=g.api.command('D');g.advance(300);await pending;g.api.end(true);
+  let initial=g.api.begin();
+  assert.deepEqual(Array.from(initial.head),[0,0]);assert.equal(initial.snake.length,1);
+  g.advance(3000);assert.deepEqual(g.snapshot().head,[0,0]);
+  pending=g.api.command('W');g.advance(300);await pending;
+  assert.equal(g.snapshot().status,'over');g.api.end(true);
+  initial=g.api.begin();assert.equal(initial.status,'ready');assert.equal(initial.score,0);
+  assert.deepEqual(Array.from(initial.head),[0,0]);
+  pending=g.api.command('S');assert.deepEqual(g.snapshot().head,[0,1]);g.advance(300);await pending;
+});
+
+test('automatic Python reset preserves the user drawing and saved speed',()=>{
+  const g=makeGame();g.run('speed=12;guides=[{type:"line",points:[{x:1,y:2},{x:3,y:4}]}]');
+  g.api.begin();assert.equal(g.snapshot().speed,12);assert.equal(g.run('guides.length'),1);
+  g.click('restart');assert.equal(g.run('guides.length'),1);assert.equal(g.snapshot().speed,12);
 });

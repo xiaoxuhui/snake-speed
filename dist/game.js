@@ -18,14 +18,13 @@ function spawnFood() {
   const index = empty[Math.floor(Math.random()*empty.length)];
   return {x:index%SIZE,y:Math.floor(index/SIZE)};
 }
-function reset(start = false) {
-  clearTimeout(timer);
+function reset() {
+  clearTimeout(timer);timer=null;
   snake = [{x:0,y:0}];
   direction = DIRECTIONS.right; turns = []; score = 0; state = 'ready';
   food = spawnFood();
   $('score').textContent = score;
   updateUI(); draw();
-  if (start) togglePlay();
 }
 function schedule() {
   clearTimeout(timer);timer=null;
@@ -34,7 +33,7 @@ function schedule() {
 }
 function togglePlay() {
   if (tool !== 'play') setTool('play');
-  if (state === 'over' || state === 'won') { window.stopPythonProgram?.(); reset(true); return; }
+  if (state === 'over' || state === 'won') { restartGame(); return; }
   state = state === 'running' ? 'paused' : 'running';
   if (pythonControl) pythonControl.manualPaused = state === 'paused';
   updateUI(); schedule();
@@ -75,7 +74,7 @@ function updateUI() {
   $('overlay').hidden = running || tool !== 'play';
   $('status-dot').classList.toggle('active',running);
   $('status-text').textContent = {ready:'等待开始',running:'正在游戏',paused:'已暂停',over:'游戏结束',won:'挑战完成'}[state];
-  $('play').textContent = {ready:'开始游戏 ↗',running:'Ⅱ 暂停游戏',paused:'继续游戏 ↗',over:'再玩一局 ↗',won:'再玩一局 ↗'}[state];
+  $('play').textContent = {ready:'开始游戏 ↗',running:'Ⅱ 暂停游戏',paused:'继续游戏 ↗',over:'重置棋盘 ↻',won:'重置棋盘 ↻'}[state];
   const messages = {
     ready:['✦','从左上角的一格出发','点击「运行 Python」\n程序会自动控制，无需按方向键。'],
     paused:['Ⅱ','休息一下','点击「继续游戏」或按空格键继续。'],
@@ -118,7 +117,9 @@ function fitCanvas() {
   canvas.width=pixels;canvas.height=pixels;ctx.setTransform(pixels/WIDTH,0,0,pixels/WIDTH,0,0);draw();
 }
 $('play').addEventListener('click',togglePlay);
-function restartGame() { window.stopPythonProgram?.();reset(true); }
+function restartGame() {
+  window.stopPythonProgram?.();endPythonControl(true);setTool('play');reset();
+}
 $('restart').addEventListener('click',restartGame);
 $('speed').addEventListener('input',event=>{
   speed=Number(event.target.value);
@@ -279,11 +280,12 @@ function endPythonControl(pause=true) {
   schedule();updateUI();
 }
 function beginPythonControl() {
-  endPythonControl(true);setTool('play');pythonControl={pending:null,manualPaused:false};return gameSnapshot();
+  endPythonControl(true);setTool('play');reset();
+  pythonControl={pending:null,manualPaused:false};return gameSnapshot();
 }
 function pythonCommand(command) {
   if (!pythonControl) return Promise.reject(new Error('程序已经停止。'));
-  if (command==='R') {reset(false);pythonControl.manualPaused=false;return Promise.resolve(gameSnapshot());}
+  if (command==='R') {reset();pythonControl.manualPaused=false;return Promise.resolve(gameSnapshot());}
   if (command==='T') {
     if(state==='over'||state==='won')return Promise.resolve({...gameSnapshot(),notice:'本局已结束，输出 R 可重置；Python 程序继续执行。'});
     pythonControl.manualPaused=false;setTool('play');state='running';updateUI();schedule();return Promise.resolve(gameSnapshot());
