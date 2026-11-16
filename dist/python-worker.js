@@ -1,5 +1,5 @@
 // A real CPython interpreter in a separate worker: Stop can terminate even an infinite loop.
-const BASE='https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
+const BASE=new URL('pyodide/', import.meta.url).href;
 let pyodide,runId=0,sequence=0,latestState='{}',active=false,nonCommandBytes=0;
 const requests=new Map(),outstanding=new Set();
 let commandError=null;
@@ -96,7 +96,7 @@ _time.sleep = _game_sleep
 async function boot() {
   send('loading');
   try {
-    const {loadPyodide}=await import(BASE+'pyodide.mjs');
+    const {loadPyodide}=await import(BASE+'pyodide.js');
     pyodide=await loadPyodide({indexURL:BASE,packages:['pydoc_data'],
       stdout:text=>send('system',{text}),stderr:text=>send('stderr',{text})});
     pyodide.registerJsModule('snake_bridge',bridge);

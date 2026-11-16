@@ -133,7 +133,7 @@ function ensurePython(){
 }
 function failRuntime(message){
   programLog(message,'error');pythonRunner.busy=false;window.snakeGame.end(true);terminateRuntime();
-  runtimeBadge('Python 加载失败','error');runnerStatus('解释器加载失败，请检查网络后点击运行重试。');updateRunnerButtons();
+  runtimeBadge('Python 加载失败','error');runnerStatus('解释器加载失败，请检查运行环境后点击运行重试。');updateRunnerButtons();
 }
 async function runPythonProgram(){
   if(pythonRunner.busy)return;
